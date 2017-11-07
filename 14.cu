@@ -1,0 +1,94 @@
+// Notes at bottom.
+#include <iostream>
+#include <limits>
+
+#include <gmp.h>
+#include <gmpxx.h>
+
+#include <benchmark/benchmark.h>
+
+template <bool gpu=false>
+static void Add(benchmark::State& state) {
+  gmp_randstate_t rands;
+  gmp_randinit_default(rands);
+  gmp_randseed_ui(rands, 42);
+  mpz_class a,b,c;
+  mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
+  mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
+  while (state.KeepRunning()) {
+    c = a + b;
+  }
+}
+
+template <bool gpu=false>
+static void Multiply(benchmark::State& state) {
+  gmp_randstate_t rands;
+  gmp_randinit_default(rands);
+  gmp_randseed_ui(rands, 42);
+  mpz_class a,b,c;
+  mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
+  mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
+  while (state.KeepRunning()) {
+    c = a * b;
+  }
+}
+
+BENCHMARK_TEMPLATE(Multiply, false)->Range(2048, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Add, false)->Range(2048, std::numeric_limits<int>::max());
+BENCHMARK_MAIN();
+
+// 1. GMP Add
+// 2. GMP Gradeschool
+//
+// As far as carry is concerned, it may be useful to make operations really
+// operate on promises that return immediately. so that more efficient versions
+// can be used (for example, aggregating carry work across multiple carries)
+//
+// For testing adds, an add followed by a subtract should compare to the
+// original. 
+//
+// Need a 'getrnd' with a limb parameter
+//
+// The toom22 threshold is ~33. I suspect that the two stage, highly parallel
+// nature of the GPU will really change things. The algorithms used in GMP
+// base case all look very serial.
+//
+// For base case, I can look at scheduling a base case multiplication on an
+// entire number, or I can look at doing a vector of base case multiplications.
+//
+// toom22 : (aB + b)(cB + d) = acB^2 + bd + ((a+b)(c+d) - ac - bd)B
+// So, schedule ac, bd, (a+b)(c+d) in parallel on the GPU as a vector3 mul
+// kernel.
+//
+// Note that it might be possible that toom22 beats base case even when done
+// in a single block. In that case, you could vectorize toom22.
+//
+// In my original design, each block was responsible for a single block of
+// output by reading in up to n different inputs. This is different from the
+// vector multiplication because each unit touches only its input units.
+//
+// There are several different kinds of units here. There's the block level unit
+// but there's also the size of a unit that is scheduled on a GPU as an
+// independent multiplication. With the vector scheduling, each multiplication
+// is independent. We should be able to parameterize this so long as the inputs
+// are roughly the same, and we say how large each unit is. Blocks just check
+// which unit they're apart of and generate the limits of that unit
+// independently to stay within bounds.
+//
+// GMP is responsible for all host side code. I am only writing device side
+// code.
+//
+// I'll need to figure out how to go from device to host while minimizing
+// memory overhead, but I'll worry about that another time.
+// mpz_getlimbn will probably be useful.
+//
+// Here's a wild idea. What if we didn't keep an entire integer contiguous, but
+// rather kept just enough contiguous to put it into a block, but also used a
+// directory to allow for growth?
+//
+// The key question is what the performance penalty would be. The way I see it
+// it would only require a single additional load from global memory, one extra
+// register during each phase of loading from global to shared memory.
+//
+// I need some terminology to refer to a size such that an entire block works
+// on it. I'll call it a block limb.
