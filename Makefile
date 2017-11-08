@@ -4,7 +4,7 @@ CXXFLAGS := -g -std=c++14
 LIB := -lgmpxx -lgmp -L$(HOME)/lib -lbenchmark -lpthread
 INC := -I$(HOME)/include
 
-EXEC := test 14
+EXEC := test benchmark
 
 all: $(EXEC)
 
