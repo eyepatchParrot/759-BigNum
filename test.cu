@@ -28,6 +28,8 @@ int main() {
       assert(mp_str == d_str);
     }
   }
+  std::cout << "PASS load inc by 16\n";
+
   mpz_class mpz_i = std::numeric_limits<long>::max();
   for (int i = 0; i < 100; i++, mpz_i += mpz_i) {
     Int gpu_i = mpz_i;
@@ -39,6 +41,7 @@ int main() {
       assert(mp_str == d_str);
     }
   }
+  std::cout << "PASS load sum by itself\n";
 
   for (int i = 0; i < 10; i++, mpz_i *= mpz_i) {
     Int gpu_i = mpz_i;
@@ -50,6 +53,8 @@ int main() {
       assert(mp_str == d_str);
     }
   }
+
+  std::cout << "PASS load squared\n";
 
   /*
    * test addition without carries
@@ -63,13 +68,21 @@ int main() {
 #define GPU_OK(N1, OP, N2) \
   assert(mpz_cksum(N1 OP N2) == (Int(N1) OP Int(N2)).cksum())
 
-  mpz_i = 1_mpz + 1_mpz;
-  std::cout << std::string(Int(1_mpz)) << '\n';
-  std::cout << mpz_i.get_str(16) << '\n';
-  std::cout << std::string(Int(1_mpz) + Int(1_mpz)) << '\n';
   GPU_OK(1_mpz, +, 1_mpz);
+  std::cout << "PASS 1+1 = 2\n";
+
   GPU_OK(blk_n, +, blk_n);
+  std::cout << "PASS 2**64 + 2**64\n";
+
+  mpz_i = blk_n + 1_mpz;
+
+  std::cout << std::string(Int(mpz_i) + Int(mpz_i)) << '\n';
+  mpz_i += mpz_i;
+  std::cout << mpz_i.get_str(16) << '\n';
+
+
   GPU_OK(mpz_i, +, mpz_i);
+  std::cout << "PASS 2**64+1 + 2**64+1\n";
 
   return 0;
 }

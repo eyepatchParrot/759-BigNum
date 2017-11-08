@@ -6,7 +6,6 @@
 #SBATCH --mail-user=vansandt@wisc.edu
 #SBATCH --mail-type=ALL
 #SBATCH -p slurm_shortgpu
-#SBATCH -w euler01
 #SBATCH --gres=gpu:1
 cd $SLURM_SUBMIT_DIR
 module load cuda

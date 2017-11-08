@@ -88,7 +88,9 @@ class Int {
     Limb* d_carry;
     cudaMalloc(&d_carry, sizeof(Limb) * n_blocks);
 
-    Int c = std::move(Int().resize(a.n_limbs));
+    Int c;
+    c.resize(a.n_limbs);
+    //Int c = std::move(Int().resize(a.n_limbs));
 
     // assumes fewer than 1024 * add_block_sz limbs
     d_add<<<n_blocks, add_block_sz>>>(c.d_limbs, c.n_limbs, a.d_limbs, b.d_limbs, b.n_limbs, d_carry);
