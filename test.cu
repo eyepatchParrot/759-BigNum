@@ -60,10 +60,11 @@ int main() {
    * test addition without carries
    */
   // single block
-  mpz_class blk_n = 1L << 63;
+  mpz_class blk_n = 1L << 62;
   assert(mpz_size(blk_n.get_mpz_t()) == 1);
-  blk_n *= 2;
+  blk_n *= 4;
   assert(mpz_size(blk_n.get_mpz_t()) == 2);
+
 
 #define GPU_OK(N1, OP, N2) \
   assert(mpz_cksum(N1 OP N2) == (Int(N1) OP Int(N2)).cksum())
@@ -75,12 +76,6 @@ int main() {
   std::cout << "PASS 2**64 + 2**64\n";
 
   mpz_i = blk_n + 1_mpz;
-
-  std::cout << std::string(Int(mpz_i) + Int(mpz_i)) << '\n';
-  mpz_i += mpz_i;
-  std::cout << mpz_i.get_str(16) << '\n';
-
-
   GPU_OK(mpz_i, +, mpz_i);
   std::cout << "PASS 2**64+1 + 2**64+1\n";
 

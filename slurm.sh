@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -N 1
-#SBATCH --ntasks=40
+#SBATCH --ntasks=1
 #SBATCH -o job_out
 #SBATCH -e job_err
 #SBATCH --mail-user=vansandt@wisc.edu
