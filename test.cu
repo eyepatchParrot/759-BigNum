@@ -59,25 +59,66 @@ int main() {
   /*
    * test addition without carries
    */
-  // single block
-  mpz_class blk_n = 1L << 62;
-  assert(mpz_size(blk_n.get_mpz_t()) == 1);
-  blk_n *= 4;
-  assert(mpz_size(blk_n.get_mpz_t()) == 2);
+  // single limb
+  mpz_class limb_n = 1_mpz << 64;
+  assert(mpz_size(limb_n.get_mpz_t()) == 2);
 
 
-#define GPU_OK(N1, OP, N2) \
-  assert(mpz_cksum(N1 OP N2) == (Int(N1) OP Int(N2)).cksum())
+#define GPU_OK(N1, OP, N2, NAME) \
+  do { \
+    mpz_class t1 = N1, t2 = N2; \
+    if (mpz_cksum(t1 OP t2) != (Int(t1) OP (Int(t2))).cksum()) { \
+      mpz_class r = t1 OP t2; \
+        std::cerr << r.get_str(16) << '\n' << std::string(Int(t1) OP Int(t2)) << '\n'; \
+        assert(!NAME); \
+    } else { \
+      std::cout << "PASS " << NAME << '\n'; \
+    } \
+  } while (0)
 
-  GPU_OK(1_mpz, +, 1_mpz);
-  std::cout << "PASS 1+1 = 2\n";
+  GPU_OK(1_mpz, +, 1_mpz, "1+1=2");
+  GPU_OK(limb_n, +, limb_n, "10 + 10 = 20");
+  GPU_OK(limb_n + 1_mpz, +, limb_n + 1_mpz, "11 + 11 = 22");
+  GPU_OK((limb_n - 1) * limb_n, +, (limb_n - 1), "F0 + 0F = FF");
 
-  GPU_OK(blk_n, +, blk_n);
-  std::cout << "PASS 2**64 + 2**64\n";
+  // carry tests
+  GPU_OK(limb_n - 1, +, limb_n - 1, "F + F = 1E");
+  GPU_OK(limb_n - 1, +, 1, "F + 1 = 10");
+  GPU_OK((limb_n - 1) * limb_n, +, (limb_n - 1) * limb_n, "F0 + F0 = 1E0");
+  GPU_OK((limb_n * limb_n - 1), +, (limb_n * limb_n - 1), "FF + FF = 1FE");
+  GPU_OK((limb_n * limb_n - 1), +, 1_mpz, "FF + 1 = 100");
+  GPU_OK(limb_n * (limb_n - 2) + limb_n - 1, +, limb_n + 1, "EF + 11 = 100");
 
-  mpz_i = blk_n + 1_mpz;
-  GPU_OK(mpz_i, +, mpz_i);
-  std::cout << "PASS 2**64+1 + 2**64+1\n";
+  // carry block tests
+  //mpz_class block_n = 1_mpz << (64*256);
+  //assert(mpz_size(block_n.get_mpz_t()) == 257);
+  //GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
+  //GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
+
+  //mpz_i = blk_n + 1_mpz;
+  //GPU_OK(mpz_i, +, mpz_i);
+  //std::cout << "PASS 2**64+1 + 2**64+1\n";
+
+  //// carry tests
+  //mpz_i = blk_n - 1;
+  //GPU_OK(mpz_i, +, mpz_i);
+  //std::cout << "PASS F + F\n";
+
+  //mpz_class mpz_j = 1_mpz;
+  //GPU_OK(mpz_i, +, mpz_j);
+  //std::cout << "PASS F + 1\n";
+
+  //mpz_i *= blk_n;
+  //GPU_OK(mpz_i, +, mpz_i);
+  //std::cout << "PASS F0 + F0\n";
+
+  //mpz_j = blk_n - 1;
+  //GPU_OK(mpz_i, +, mpz_j);
+  //std::cout << "PASS F0 + 0F\n";
+
+  //mpz_i += mpz_j;
+  //GPU_OK(mpz_i, +, mpz_i);
+  //std::cout << "PASS FF + FF\n";
 
   return 0;
 }

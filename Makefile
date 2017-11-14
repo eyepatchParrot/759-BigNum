@@ -25,7 +25,7 @@ debug : $(EXEC)
 	$(CXX) $(CXXFLAGS) $(OPT) $(INC) $< -o $@ $(LIB) -ccbin $(BIN)
 
 clean:
-	rm -f $(EXEC)
+	rm -f $(EXEC) e.* o.*
 
 sbatch: test
 	sbatch slurm.sh

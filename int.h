@@ -17,15 +17,17 @@
 /*
  * It doesn't make any sense to talk about a fixed block size because different
  * ops should be tiled differently.
+ *
+ * Need to separate capacity from size to keep integers small after many adds, etc.
  */
 
 namespace GPU {
-  using Limb = int64_t;
+  using Limb = uint64_t;
 
 __global__ void d_cksum(uint16_t* sum, const uint8_t* data, int n_bytes) {
   *sum = cksum(data, n_bytes);
 }
-__global__ void d_add(Limb* c, int c_sz, const Limb* a, const Limb* b, int b_sz, Limb* carry) {
+__global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, int b_sz, Limb* carry) {
   // each block needs a carry, so you need an array of them.
   // can re-use b if it's mutable. If not, make a copy.
   // each thread gets its own limb of the output.
@@ -33,23 +35,52 @@ __global__ void d_add(Limb* c, int c_sz, const Limb* a, const Limb* b, int b_sz,
 
   if (tid < b_sz)
     c[tid] = a[tid] + b[tid];
-  else if (tid < c_sz)
+  else if (tid < a_sz)
     c[tid] = a[tid];
   __syncthreads();
 
   if (threadIdx.x == 0) {
     int tCarry = 0;
-    for (int i = 0; i < blockDim.x && tid+i < c_sz; i++) {
+    for (int i = 0; i < blockDim.x; i++) {
+      if ((tid+i) == a_sz) {
+        c[tid+i] = tCarry;
+        tCarry = 0;
+        break;
+      }
+
       // need to make sure that you handle the case where the carry causes
       // the carry and the case where you maxed out the carry and had a carry
       // 0xffff + 0xffff + 1 = 0x1fffe + 1 = 0x1ffff
-      c[tid+i] += tCarry;
+      c[tid+i] = c[tid+i] + tCarry;
       tCarry = tCarry ? c[tid+i] <= a[tid+i] : c[tid+i] < a[tid+i];
     }
     carry[blockIdx.x] = tCarry;
   }
 }
 
+template <typename T>
+T d_read(T* d) {
+  T t;
+  cudaMemcpy(&t, d, sizeof(T), cudaMemcpyDeviceToHost);
+  return t;
+}
+
+__global__ void g_carry(Limb* c, int n_c, Limb* carry, int block_sz) {
+  if (threadIdx.x != 0) return;
+
+  int t_carry = 0;
+  for (int i = block_sz; i < n_c; i++) {
+    if (i % block_sz == 0) t_carry += carry[(i / block_sz) - 1];
+    Limb old_c = c[i];
+    c[i] += t_carry;
+    t_carry = c[i] < old_c ? 1 : 0;
+  }
+  if (n_c % block_sz != 0) return;
+  int n_blocks = (n_c-1 + block_sz) / block_sz;
+  // assert n_c is valid and no overflow
+  // only include carry[n_blocks-1] if n_c falls on a block boundary. Otherwise, it should've been simply included.
+  c[n_c] = t_carry + carry[n_blocks-1];
+}
 
 class Int {
   static constexpr int add_block_sz = 256;
@@ -69,6 +100,8 @@ class Int {
       cudaMalloc(&d_v, sizeof(T));
       cudaMemcpy(d_v, &v, sizeof(T), cudaMemcpyHostToDevice);
     }
+    d_Val(T* d_v) : d_v(d_v) {}
+
     ~d_Val() { cudaFree(d_v); }
     operator T*() {
       return d_v;
@@ -89,52 +122,54 @@ class Int {
     cudaMalloc(&d_carry, sizeof(Limb) * n_blocks);
 
     Int c;
+    c.reserve(a.n_limbs + 1);
     c.resize(a.n_limbs);
-    //Int c = std::move(Int().resize(a.n_limbs));
+    //Int c = std::move(Int().reserve(a.n_limbs));
 
     // assumes fewer than 1024 * add_block_sz limbs
-    d_add<<<n_blocks, add_block_sz>>>(c.d_limbs, c.n_limbs, a.d_limbs, b.d_limbs, b.n_limbs, d_carry);
-    // TODO figure out carries
-//    int block_sz = add_block_sz;
-//    do {
-//      n_blocks = (n_blocks - 1 + carry_block_sz) / carry_block_sz;
-//      d_carry<<<n_blocks, carry_block_sz>>>(c.d_limbs, c.n_limbs, d_carry, block_sz);
-//      block_sz *= carry_block_sz;
-//    } while (n_blocks > 1);
+    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, d_carry);
+    // n_limbs vs capacity
+    assert(c.capacity > c.n_limbs);
+    g_carry<<<1, 1>>>(c.d_limbs, c.n_limbs, d_carry, add_block_sz);
+    if (d_read(c.d_limbs + c.n_limbs) != 0) c.n_limbs++;
+
+    // This is an iterative approach. Get it working first.
+    //int block_sz = add_block_sz;
+    //do {
+    //  n_blocks = (n_blocks - 1 + carry_block_sz) / carry_block_sz;
+    //  d_carry<<<n_blocks, carry_block_sz>>>(c.d_limbs, c.n_limbs, d_carry, block_sz);
+    //  block_sz *= carry_block_sz;
+    //} while (n_blocks > 1);
 
     cudaFree(d_carry);
     return c;
   }
 
-  Int() : n_limbs(0), d_limbs(nullptr) { }
-  //Int(Int&& b) : n_limbs(b.n_limbs), d_limbs(b.d_limbs) {
-  //  b.n_limbs = 0;
-  //  b.d_limbs = nullptr;
-  //}
-  //Int& operator=(Int&& b) {
-  //  if (d_limbs != nullptr)
-  //    cudaFree(d_limbs);
-  //  d_limbs = b.d_limbs;
-  //  n_limbs = b.n_limbs;
-  //  b.d_limbs = nullptr;
-  //  b.n_limbs = 0;
-  //  return *this;
-  //}
+  Int() : capacity(0), n_limbs(0), d_limbs(nullptr) { }
 
-  Int& resize(int n_limbs) {
-    this->n_limbs = n_limbs;
+  Int& reserve(int capacity) {
+    if (capacity <= this->capacity) return *this;
+
+    this->capacity = capacity;
     if (d_limbs != nullptr)
       cudaFree(d_limbs);
-    if (n_limbs > 0)
-      cudaMalloc(&d_limbs, sizeof(Limb) * n_limbs);
+    if (capacity > 0)
+      cudaMalloc(&d_limbs, sizeof(Limb) * capacity);
+    return *this;
+  }
+  
+  Int& resize(int n_limbs) {
+    reserve(n_limbs);
+    this->n_limbs = n_limbs;
     return *this;
   }
 
+  int capacity;
   int n_limbs; 
   Limb* d_limbs;
 public:
   // TODO write test for assignment
-  Int(const mpz_class& gmp_n) : n_limbs(0), d_limbs(nullptr) {
+  Int(const mpz_class& gmp_n) : capacity(0), n_limbs(0), d_limbs(nullptr) {
     //mpz_export (void *data, size_t *countp, int order,
     //	    size_t size, int endian, size_t nail, mpz_srcptr z)
     // countp is the number of bytes written
@@ -161,7 +196,7 @@ public:
   }
 
   uint16_t cksum() const {
-    d_Val<uint16_t> r = 0;
+    d_Val<uint16_t> r = (uint16_t)0;
     d_cksum<<<1,1>>>(r, (uint8_t*)d_limbs, sizeof(Limb)*n_limbs);
     return r;
   }
