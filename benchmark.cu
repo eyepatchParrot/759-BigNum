@@ -7,6 +7,8 @@
 
 #include <benchmark/benchmark.h>
 
+#include "int.h"
+
 template <bool gpu=false>
 static void Add(benchmark::State& state) {
   gmp_randstate_t rands;
@@ -15,9 +17,13 @@ static void Add(benchmark::State& state) {
   mpz_class a,b,c;
   mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
   mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
-  while (state.KeepRunning()) {
-    c = a + b;
+  c = a+b;
+  GPU::Int g_a = a, g_b = b, g_c = c;
+  for (auto _ : state) {
+    if (gpu) g_c = g_a + g_b;
+    else c = a + b;
   }
+  state.SetComplexityN(state.range(0));
 }
 
 template <bool gpu=false>
@@ -28,12 +34,18 @@ static void Multiply(benchmark::State& state) {
   mpz_class a,b,c;
   mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
   mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
-  while (state.KeepRunning()) {
-    c = a * b;
+  c = a*b;
+  GPU::Int g_a = a, g_b = b, g_c = c;
+  for (auto _ : state) {
+    if (gpu) g_c = g_a * g_b;
+    else c = a * b;
   }
+  state.SetComplexityN(state.range(0));
 }
 
-BENCHMARK_TEMPLATE(Multiply, false)->Range(2048, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Multiply, true)->Range(4096, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Multiply, false)->Range(4096, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Add, true)->Range(2048, 934113382);
 BENCHMARK_TEMPLATE(Add, false)->Range(2048, std::numeric_limits<int>::max());
 BENCHMARK_MAIN();
 

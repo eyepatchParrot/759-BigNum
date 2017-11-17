@@ -27,8 +27,11 @@ debug : $(EXEC)
 clean:
 	rm -f $(EXEC) e.* o.*
 
-sbatch: test
-	sbatch slurm.sh
+sh_test: test
+	sbatch sh_test.sh
+
+sh_bench: benchmark
+	sbatch sh_bench.sh
 
 
 #14: 14.cu Int.h
