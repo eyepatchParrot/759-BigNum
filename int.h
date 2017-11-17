@@ -212,8 +212,8 @@ class Int {
     c.resize(c_n);
     carry.resize(c_n + 2);
     g_times<<<n_blocks, times_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, carry.d_limbs);
-    if (d_read(carry.d_limbs + c_n + 2) == 0) {
-      if (d_read(carry.d_limbs + c_n + 1) == 0) carry.resize(c_n);
+    if (d_read(carry.d_limbs + c_n + 1) == 0) {
+      if (d_read(carry.d_limbs + c_n) == 0) carry.resize(c_n);
       else carry.resize(c_n+1);
     } else carry.resize(c_n+2);
     Int d = c.add(carry);
@@ -297,6 +297,9 @@ public:
   }
   Int operator+(const Int& b) {
     return add(b);
+  }
+  Int operator*(const Int& b) {
+    return times(b);
   }
 };
 }

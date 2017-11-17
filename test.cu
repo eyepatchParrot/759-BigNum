@@ -95,30 +95,20 @@ int main() {
   GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
   GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
 
-  //mpz_i = blk_n + 1_mpz;
-  //GPU_OK(mpz_i, +, mpz_i);
-  //std::cout << "PASS 2**64+1 + 2**64+1\n";
+  // times tests
+  GPU_OK(1_mpz, *, 1_mpz, "1 * 1 = 1");
+  GPU_OK(limb_n, *, 1_mpz, "10 * 1 = 10");
+  GPU_OK(block_n, *, 1_mpz, "BLK 10 * 1 = 10");
+  GPU_OK(limb_n - 1, *, 2_mpz, "F * 2 = 1E");
+  GPU_OK((limb_n - 1) * limb_n, *, 2_mpz, "F0 * 2 = 1E0");
+  GPU_OK((limb_n * limb_n - 1), *, 2_mpz, "FF * 2 = 1FE");
+  GPU_OK(block_n, *, 2_mpz, "BLK 10 * 2 = 20");
+  GPU_OK(block_n - 1, *, 2_mpz, "BLK F * 2 = 1E");
+  GPU_OK(limb_n - 1, *, limb_n - 1, "F * F = FFFE0001");
+  GPU_OK(block_n - 1, *, block_n - 1, "BLK F * F = FFFE0001");
 
-  //// carry tests
-  //mpz_i = blk_n - 1;
-  //GPU_OK(mpz_i, +, mpz_i);
-  //std::cout << "PASS F + F\n";
+  // TODO randomized testing
 
-  //mpz_class mpz_j = 1_mpz;
-  //GPU_OK(mpz_i, +, mpz_j);
-  //std::cout << "PASS F + 1\n";
-
-  //mpz_i *= blk_n;
-  //GPU_OK(mpz_i, +, mpz_i);
-  //std::cout << "PASS F0 + F0\n";
-
-  //mpz_j = blk_n - 1;
-  //GPU_OK(mpz_i, +, mpz_j);
-  //std::cout << "PASS F0 + 0F\n";
-
-  //mpz_i += mpz_j;
-  //GPU_OK(mpz_i, +, mpz_i);
-  //std::cout << "PASS FF + FF\n";
 
   return 0;
 }
