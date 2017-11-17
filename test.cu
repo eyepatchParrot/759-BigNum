@@ -90,10 +90,10 @@ int main() {
   GPU_OK(limb_n * (limb_n - 2) + limb_n - 1, +, limb_n + 1, "EF + 11 = 100");
 
   // carry block tests
-  //mpz_class block_n = 1_mpz << (64*256);
-  //assert(mpz_size(block_n.get_mpz_t()) == 257);
-  //GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
-  //GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
+  mpz_class block_n = 1_mpz << (64*256);
+  assert(mpz_size(block_n.get_mpz_t()) == 257);
+  GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
+  GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
 
   //mpz_i = blk_n + 1_mpz;
   //GPU_OK(mpz_i, +, mpz_i);
