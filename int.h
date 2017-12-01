@@ -38,10 +38,10 @@ static T d_read(T* d) {
   return t;
 }
 
-__global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a, const int a_sz, const Limb* b, const int b_sz) ;
+__global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a, const int a_sz, const Limb* b, const int b_sz, bool debug) ;
 __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz) ;
 __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) ;
-__global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, const Limb* p, const Limb *g) ;
+__global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, const Limb* p, const Limb *g, bool debug) ;
 __global__ void g_times(Limb* c, const Limb* a, const int a_n, const Limb* b, int b_n, Limb* carry) ;
 __global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, Limb* carry) ;
 __global__ void g_carry_serial(Limb* c, int n_c, Limb* carry, int block_sz);
@@ -115,19 +115,19 @@ class Int {
     p.resize(n_blocks);
     g.resize(n_blocks);
 
-    g_carry_reduce_limb_block<<<n_blocks, add_block_sz>>>(p.d_limbs, g.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs);
+    g_carry_reduce_limb_block<<<n_blocks, add_block_sz>>>(p.d_limbs, g.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, a.n_limbs > 250 && b.n_limbs > 250);
     // TODO make sure we're not off by one on n_limbs
     for (int k = 1; add_block_sz * k - 1 < n_blocks; k *= add_block_sz)
       g_reduce<<<
         (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
         add_block_sz>>>
           (p.d_limbs, g.d_limbs, c.n_limbs, k); 
-    for (int k = (n_blocks - 1 + add_block_sz) / add_block_sz; k >= 1; k /= add_block_sz)
+    for (int k = (n_blocks - 1 + add_block_sz) / add_block_sz; k > 1; k /= add_block_sz)
       g_sweep<<<
         (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
         add_block_sz>>>(p.d_limbs, g.d_limbs, n_blocks, k);
 
-    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs);
+    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs, a.n_limbs > 250 && b.n_limbs > 250);
     if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
 
     return c;

@@ -21,7 +21,7 @@ all: $(EXEC)
 debug : OPT  := -O0 -g -G
 debug : $(EXEC)
 
-%: %.cu int.h cksum.h
+%: %.cu int.h cksum.h int.cu
 	$(CXX) $(CXXFLAGS) $(OPT) $(INC) int.cu $< -o $@ $(LIB) -ccbin $(BIN)
 
 clean:

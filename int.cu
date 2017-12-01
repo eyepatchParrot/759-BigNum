@@ -17,12 +17,12 @@ __device__ void s_reduce(volatile Limb* p, volatile Limb* g) {
 }
 
 __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
-    const int a_sz, const Limb* b, const int b_sz) {
+    const int a_sz, const Limb* b, const int b_sz, bool debug) {
   __shared__ volatile Limb s_p[Int::add_block_sz];
   __shared__ volatile Limb s_g[Int::add_block_sz];
 
   // TODO Consider doing n operations in registers to reduce shared memory pressure.
-  // Calculate limb-wise carry / propogate. Likely better than doing it bitwise.
+  // Calculate limb-wise carry / propagate. Likely better than doing it bitwise.
   if (tid() < b_sz)
     s_p[threadIdx.x] = a[tid()] + b[tid()] + 1 == 0;
   else if (tid() < a_sz)
@@ -35,7 +35,12 @@ __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
   else
     s_g[threadIdx.x] = 0; // x + 0 < x = false
 
+  if (debug) printf("crlb-0 tid,p,g %d %d %d\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x]);
+
   s_reduce(s_g, s_p);
+
+  if (debug) printf("crlb-1 tid,p,g %d %d %d\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x]);
+
   __syncthreads();
 
   // only need one output since no re-using limb propagate + generate
@@ -109,17 +114,23 @@ __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) {
  */
 // TODO merge last add into last sweep
 // TODO merge last reduce into first add.
-__global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, const Limb* p, const Limb *g) {
+__global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, const Limb* p, const Limb *g, bool debug) {
   // p and g are in terms of blocks, but to verify carry math, use serial add.
   // TODO use a parallel prefix adder to get log time addition. probably can re-use existing fns
   if (threadIdx.x != 0) return;
+  // If the last block has a carry out, then write that to the carry out
   if (blockIdx.x == blockDim.x - 1) c[a_sz] = g[blockIdx.x];
   int t_carry = (int)blockIdx.x - 1 < 0 ? 0 : g[blockIdx.x - 1];
   for (int i = 0; i < blockDim.x && tid() + i < a_sz; i++) {
     int old_a = a[tid() + i];
-    c[tid()+i] = old_a + b[tid() + i] + t_carry;
+    if (debug)
+      printf("a-0 i,a_sz,b_sz %d %d %d\n", tid()+i, a_sz, b_sz);
+    c[tid()+i] = old_a + (tid()+i < b_sz ? b[tid() + i] : 0) + t_carry;
     t_carry = t_carry ? c[tid() + i] <= old_a : c[tid() + i] < a[tid() + i];
   }
+  // This won't write the carry out if the block is full, but that's OK because then the
+  // whole block will have a carry and that can be written out.
+  if (tid() + a_sz < blockDim.x) c[tid()+a_sz] = t_carry;
   //if (tid() < b_sz) {
   //  Limb p_i = a[tid()] ^ b[tid()];
   //  c[tid()] = p_i ^ g[tid()];
