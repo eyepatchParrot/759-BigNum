@@ -24,20 +24,26 @@ namespace GPU {
   // TODO make sure everything is OK. I think this doesn't match the instrinsic I'm using.
   using Limb = uint64_t;
 
-__global__ void d_cksum(uint16_t* sum, const uint8_t* data, int n_bytes) {
+static __global__ void d_cksum(uint16_t* sum, const uint8_t* data, int n_bytes) {
   *sum = cksum(data, n_bytes);
 }
 
-__device__ int tid() { return blockIdx.x * blockDim.x + threadIdx.x; }
+static __device__ int tid() { return blockIdx.x * blockDim.x + threadIdx.x; }
+
+
+template <typename T>
+static T d_read(T* d) {
+  T t;
+  cudaMemcpy(&t, d, sizeof(T), cudaMemcpyDeviceToHost);
+  return t;
+}
 
 __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a, const int a_sz, const Limb* b, const int b_sz) ;
 __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz) ;
 __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) ;
 __global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, const Limb* p, const Limb *g) ;
 __global__ void g_times(Limb* c, const Limb* a, const int a_n, const Limb* b, int b_n, Limb* carry) ;
-template <typename T>
-T d_read(T* d) ;
-__global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb* b, int b_sz, Limb* carry) ;
+__global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, Limb* carry) ;
 __global__ void g_carry_serial(Limb* c, int n_c, Limb* carry, int block_sz);
 
 
@@ -117,9 +123,11 @@ class Int {
         add_block_sz>>>
           (p.d_limbs, g.d_limbs, c.n_limbs, k); 
     for (int k = (n_blocks - 1 + add_block_sz) / add_block_sz; k >= 1; k /= add_block_sz)
-      g_sweep(p.d_limbs, n_blocks, k);
+      g_sweep<<<
+        (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
+        add_block_sz>>>(p.d_limbs, g.d_limbs, n_blocks, k);
 
-    g_add(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs);
+    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs);
     if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
 
     return c;

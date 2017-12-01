@@ -1,14 +1,16 @@
 #include "int.h"
 
+namespace GPU {
 __device__ void s_reduce(volatile Limb* p, volatile Limb* g) {
   // [[2 * k * (1+i) - 1 for i in range(16) if (2 * k * (1+i)-1) < 16]
   //  for k in [2**j for j in range(4)]]
   for (int k = 1; 2 * k <= Int::add_block_sz; k *= 2) {
     int j = 2 * k * (1+threadIdx.x) - 1;
+    int i = j-k;
     __syncthreads();
     if (j < Int::add_block_sz) {
       Limb pj = p[j];
-      p[j] = pj & p[j-k];
+      p[j] = pj & p[i];
       g[j] = g[j] | (g[i] & pj);
     }
   }
@@ -72,9 +74,10 @@ __device__ void s_sweep(volatile Limb *p, volatile Limb *g) {
     // [[(2 * t + 3) * B - 1 for t in range(0,16) if (2 * t + 3) * B - 1 < 16]
     //  for B in [2**j for j in range(2,-1,-1)]]
     int j = (2 * threadIdx.x + 3) * k - 1;
+    int i = j-k;
     if (j < blockDim.x) {
       Limb pj = p[j];
-      p[j] = pj & p[j-k];
+      p[j] = pj & p[i];
       g[j] = g[j] | (g[i] & pj);
     }
   }
@@ -85,7 +88,6 @@ __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) {
   __shared__ volatile Limb s_g[Int::add_block_sz];
 
   // assume that k is the smallest distance considered
-  int k = block_sz;
   int i = (tid()+2) * block_sz - 1;
   // [[t * B - 1 for t in range(2,16) if (t+1)*B-1 < 16]
   //  for B in [2**j for j in range(2,-1,-1)]]
@@ -112,7 +114,7 @@ __global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, co
   // TODO use a parallel prefix adder to get log time addition. probably can re-use existing fns
   if (threadIdx.x != 0) return;
   if (blockIdx.x == blockDim.x - 1) c[a_sz] = g[blockIdx.x];
-  int t_carry = blockIdx.x - 1 < 0 ? 0 : g[blockIdx.x - 1];
+  int t_carry = (int)blockIdx.x - 1 < 0 ? 0 : g[blockIdx.x - 1];
   for (int i = 0; i < blockDim.x && tid() + i < a_sz; i++) {
     int old_a = a[tid() + i];
     c[tid()+i] = old_a + b[tid() + i] + t_carry;
@@ -186,13 +188,6 @@ __global__ void g_times(Limb* c, const Limb* a, const int a_n, const Limb* b, in
   // This can be handled in g_carry if a carry size is used with a while (i % m < z).
 }
 
-template <typename T>
-T d_read(T* d) {
-  T t;
-  cudaMemcpy(&t, d, sizeof(T), cudaMemcpyDeviceToHost);
-  return t;
-}
-
 __global__ void g_carry_serial(Limb* c, int n_c, Limb* carry, int block_sz) {
   if (threadIdx.x != 0) return;
 
@@ -210,7 +205,7 @@ __global__ void g_carry_serial(Limb* c, int n_c, Limb* carry, int block_sz) {
   c[n_c] = t_carry + carry[n_blocks-1];
 }
 
-__global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb* b, int b_sz, Limb* carry) {
+__global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb* b, const int b_sz, Limb* carry) {
   // each block needs a carry, so you need an array of them.
   // can re-use b if it's mutable. If not, make a copy.
   // each thread gets its own limb of the output.
@@ -238,5 +233,7 @@ __global__ void g_add_serial(Limb* c,  const Limb* a, const int a_sz, const Limb
     }
     carry[blockIdx.x] = tCarry;
   }
+}
+
 }
 

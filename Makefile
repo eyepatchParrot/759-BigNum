@@ -22,7 +22,7 @@ debug : OPT  := -O0 -g -G
 debug : $(EXEC)
 
 %: %.cu int.h cksum.h
-	$(CXX) $(CXXFLAGS) $(OPT) $(INC) $< -o $@ $(LIB) -ccbin $(BIN)
+	$(CXX) $(CXXFLAGS) $(OPT) $(INC) int.cu $< -o $@ $(LIB) -ccbin $(BIN)
 
 clean:
 	rm -f $(EXEC) e.* o.*
