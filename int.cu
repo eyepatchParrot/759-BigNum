@@ -35,11 +35,12 @@ __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
   else
     s_g[threadIdx.x] = 0; // x + 0 < x = false
 
-  if (debug) printf("crlb-0 tid,p,g %d %d %d\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x]);
+  if (debug && tid() == 0) printf("sz %d %d\n", a_sz, b_sz);
+  if (debug) printf("crlb-0 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
 
-  s_reduce(s_g, s_p);
+  s_reduce(s_p, s_g);
 
-  if (debug) printf("crlb-1 tid,p,g %d %d %d\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x]);
+  //if (debug) printf("crlb-1 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
 
   __syncthreads();
 
@@ -51,7 +52,7 @@ __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
   }
 }
 
-__global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz) {
+__global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz, bool debug) {
   __shared__ volatile Limb s_p[Int::add_block_sz];
   __shared__ volatile Limb s_g[Int::add_block_sz];
   int k = block_sz;
@@ -59,16 +60,19 @@ __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz) {
   // [[(1+i)*k - 1 for i in range(16) if (1+i)*k <= n]
   //  for k in [2**j for j in range(10)] if k <= n]
   if (j < n) {
+    if (debug) printf("r-0 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
     s_p[threadIdx.x] = p[j];
     s_g[threadIdx.x] = g[j];
   } else {
     s_p[threadIdx.x] = 0;
     s_g[threadIdx.x] = 0;
   }
-  s_reduce(s_g, s_p);
+  s_reduce(s_p, s_g);
   __syncthreads();
 
   if (j >= n) return;
+
+  if (debug) printf("r-1 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
   p[j] = s_p[threadIdx.x];
   g[j] = s_g[threadIdx.x];
 }
@@ -88,7 +92,7 @@ __device__ void s_sweep(volatile Limb *p, volatile Limb *g) {
   }
 }
 
-__global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) {
+__global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz, bool debug) {
   __shared__ volatile Limb s_p[Int::add_block_sz];
   __shared__ volatile Limb s_g[Int::add_block_sz];
 
@@ -99,11 +103,13 @@ __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz) {
   if (i + block_sz < n) {
     s_p[threadIdx.x] = p[i];
     s_g[threadIdx.x] = g[i];
-  } else
-    s_p[threadIdx.x] = s_g[threadIdx.x] = 0;
+    if (debug) printf("s-0 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
+  } else s_p[threadIdx.x] = s_g[threadIdx.x] = 0;
+
   s_sweep(s_g, s_p);
   __syncthreads();
   if (i + block_sz >= n) return;
+  if (debug) printf("s-1 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
   // TODO the last propagate can be elided during addition since the carry is zero.
   p[i] = s_p[threadIdx.x];
   g[i] = s_g[threadIdx.x];
@@ -119,8 +125,8 @@ __global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, co
   // TODO use a parallel prefix adder to get log time addition. probably can re-use existing fns
   if (threadIdx.x != 0) return;
   // If the last block has a carry out, then write that to the carry out
-  if (blockIdx.x == blockDim.x - 1) c[a_sz] = g[blockIdx.x];
-  int t_carry = (int)blockIdx.x - 1 < 0 ? 0 : g[blockIdx.x - 1];
+  if (blockIdx.x == gridDim.x - 1) c[a_sz] = g[blockIdx.x];
+  int t_carry = blockIdx.x < 1 ? 0 : g[blockIdx.x - 1];
   for (int i = 0; i < blockDim.x && tid() + i < a_sz; i++) {
     int old_a = a[tid() + i];
     if (debug)
