@@ -9,44 +9,54 @@
 
 #include "int.h"
 
-template <bool gpu=false>
-static void Add(benchmark::State& state) {
+void gmp_add(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  c = a + b;
+}
+
+void gmp_mul(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  c = a * b;
+}
+
+void gpu_add(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  g_c = g_a.add(g_b);
+}
+
+void gpu_mul(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  g_c = g_a.times<false>(g_b);
+}
+
+void gpu_add_s(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  g_c = g_a.add_serial(g_b);
+}
+
+void gpu_mul_s(mpz_class& c, mpz_class& a, mpz_class& b, GPU::Int& g_c, GPU::Int& g_a, GPU::Int& g_b) {
+  g_c = g_a.times<true>(g_b);
+}
+
+using BinOp = void(mpz_class& , mpz_class& , mpz_class& , GPU::Int& , GPU::Int& , GPU::Int&);
+
+template <BinOp *op>
+static void Op(benchmark::State& state) {
   gmp_randstate_t rands;
   gmp_randinit_default(rands);
   gmp_randseed_ui(rands, 42);
   mpz_class a,b,c;
   mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
   mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
-  c = a+b;
   GPU::Int g_a = a, g_b = b, g_c = c;
-  for (auto _ : state) {
-    if (gpu) g_c = g_a + g_b;
-    else c = a + b;
-  }
+
+  for (auto _ : state) op(c, a, b, g_c, g_a, g_b);
+
   state.SetComplexityN(state.range(0));
 }
 
-template <bool gpu=false>
-static void Multiply(benchmark::State& state) {
-  gmp_randstate_t rands;
-  gmp_randinit_default(rands);
-  gmp_randseed_ui(rands, 42);
-  mpz_class a,b,c;
-  mpz_rrandomb(a.get_mpz_t(), rands, state.range(0));
-  mpz_rrandomb(b.get_mpz_t(), rands, state.range(0));
-  c = a*b;
-  GPU::Int g_a = a, g_b = b, g_c = c;
-  for (auto _ : state) {
-    if (gpu) g_c = g_a * g_b;
-    else c = a * b;
-  }
-  state.SetComplexityN(state.range(0));
-}
-
-BENCHMARK_TEMPLATE(Multiply, true)->Range(4096, 2048 << (2*5));
-BENCHMARK_TEMPLATE(Multiply, false)->Range(4096, 2048 << (2*5));
-BENCHMARK_TEMPLATE(Add, true)->Range(2048, 934113382);
-BENCHMARK_TEMPLATE(Add, false)->Range(2048, std::numeric_limits<int>::max());
+BENCHMARK_TEMPLATE(Op, gpu_mul)->Range(4096, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Op, gpu_mul_s)->Range(4096, 2048 << (2*5));
+BENCHMARK_TEMPLATE(Op, gmp_mul)->Range(4096, 2048 << (2*5));
+//BENCHMARK_TEMPLATE(Op, true)->Range(2048, 934113382);
+BENCHMARK_TEMPLATE(Op, gpu_add)->Range(2048, std::numeric_limits<int>::max());
+BENCHMARK_TEMPLATE(Op, gpu_add_s)->Range(2048, std::numeric_limits<int>::max());
+BENCHMARK_TEMPLATE(Op, gmp_add)->Range(2048, std::numeric_limits<int>::max());
 BENCHMARK_MAIN();
 
 // 1. GMP Add

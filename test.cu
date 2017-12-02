@@ -67,9 +67,10 @@ int main() {
 #define GPU_OK(N1, OP, N2, NAME) \
   do { \
     mpz_class t1 = N1, t2 = N2; \
-    if (mpz_cksum(t1 OP t2) != (Int(t1) OP (Int(t2))).cksum()) { \
+    Int t3 = Int(t1) OP Int(t2); \
+    if (mpz_cksum(t1 OP t2) != t3.cksum()) { \
       mpz_class r = t1 OP t2; \
-        std::cerr << r.get_str(16) << '\n' << std::string(Int(t1) OP Int(t2)) << '\n'; \
+        std::cerr << r.get_str(16) << '\n' << std::string(t3) << '\n'; \
         assert(!NAME); \
     } else { \
       std::cout << "PASS " << NAME << '\n'; \
@@ -94,6 +95,11 @@ int main() {
   assert(mpz_size(block_n.get_mpz_t()) == 257);
   GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
   GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
+  GPU_OK(block_n - 1, +, 1, "BLK F + 1 = 10");
+  GPU_OK((block_n - 1) * block_n, +, (block_n - 1) * block_n, "BLK F0 + F0 = 1E0");
+  GPU_OK((block_n * block_n - 1), +, (block_n * block_n - 1), "BLK FF + FF = 1FE");
+  GPU_OK((block_n * block_n - 1), +, 1_mpz, "BLK FF + 1 = 100");
+  GPU_OK(block_n * (block_n - 2) + block_n - 1, +, block_n + 1, "BLK EF + 11 = 100");
 
   // times tests
   GPU_OK(1_mpz, *, 1_mpz, "1 * 1 = 1");

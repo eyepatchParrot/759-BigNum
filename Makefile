@@ -4,7 +4,7 @@ WFLAGS	:= -Wall -Wextra
 CUDA_WFLAGS := $(foreach option, $(WFLAGS), --compiler-options $(option))
 
 # Optimization and architecture
-OPT		:= -O3
+OPT		:= -O3 -DNDEBUG
 ARCH   	:= -march=native
 
 CXX := nvcc
@@ -21,8 +21,8 @@ all: $(EXEC)
 debug : OPT  := -O0 -g -G
 debug : $(EXEC)
 
-%: %.cu int.h cksum.h
-	$(CXX) $(CXXFLAGS) $(OPT) $(INC) $< -o $@ $(LIB) -ccbin $(BIN)
+%: %.cu int.h cksum.h int.cu
+	$(CXX) $(CXXFLAGS) $(OPT) $(INC) int.cu $< -o $@ $(LIB) -ccbin $(BIN)
 
 clean:
 	rm -f $(EXEC) e.* o.*
