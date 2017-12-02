@@ -58,6 +58,7 @@ class Int {
   static constexpr int times_block_sz = 256;
 
   private:
+  using Op = Int(const Int&);
   // TODO consider including some extra space to avoid re-allocation
   // probably have a minimum size.
 
@@ -84,79 +85,6 @@ class Int {
       return v;
     }
   };
-
-  Int add_serial(const Int& other) {
-    // I need some way to not allocate and free the carry every time.
-    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
-    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
-
-    int n_blocks = (a.n_limbs - 1 + add_block_sz) / add_block_sz;
-
-    Int c, carry;
-    c.resize(a.n_limbs + 1);
-    carry.resize(n_blocks);
-    //Int c = std::move(Int().reserve(a.n_limbs));
-
-    // assumes fewer than 1024 * add_block_sz limbs
-    g_add_serial<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, carry.d_limbs);
-    g_carry_serial<<<1, 1>>>(c.d_limbs, a.n_limbs, carry.d_limbs, add_block_sz);
-    if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
-
-    return c;
-  }
-
-  Int add(const Int& other) {
-    // I need some way to not allocate and free the carry every time.
-    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
-    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
-
-    int n_blocks = (a.n_limbs - 1 + add_block_sz) / add_block_sz;
-
-    Int c, p, g;
-    c.resize(a.n_limbs + 1);
-    p.resize(n_blocks);
-    g.resize(n_blocks);
-
-    bool debug = a.n_limbs == 512 && b.n_limbs == 1;
-
-    std::cout << a.n_limbs << ' ' << b.n_limbs << '\n';
-    g_carry_reduce_limb_block<<<n_blocks, add_block_sz>>>(p.d_limbs, g.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, debug);
-    // TODO make sure we're not off by one on n_limbs
-    for (int k = 1; k < n_blocks; k *= add_block_sz)
-      g_reduce<<<
-        (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
-        add_block_sz>>>
-          (p.d_limbs, g.d_limbs, c.n_limbs, k, debug); 
-    for (int k = (n_blocks - 1 + add_block_sz) / add_block_sz; k > 1; k /= add_block_sz)
-      g_sweep<<<
-        (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
-        add_block_sz>>>(p.d_limbs, g.d_limbs, n_blocks, k, debug);
-
-    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs, debug);
-    if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
-
-    return c;
-  }
-
-  Int times(const Int& other) {
-    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
-    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
-
-    // a_i <= a_n - 1, b_i <= b_n - 1 ==> a_i + b_i < a_n + b_n - 1
-    int c_n = a.n_limbs + b.n_limbs - 1;
-
-    int n_blocks = (c_n - 1 + times_block_sz) / times_block_sz;
-    Int c, carry;
-    c.resize(c_n);
-    carry.resize(c_n + 2);
-    g_times<<<n_blocks, times_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, carry.d_limbs);
-    if (d_read(carry.d_limbs + c_n + 1) == 0) {
-      if (d_read(carry.d_limbs + c_n) == 0) carry.resize(c_n);
-      else carry.resize(c_n+1);
-    } else carry.resize(c_n+2);
-    Int d = c.add(carry);
-    return d;
-  }
 
   Int() : capacity(0), n_limbs(0), d_limbs(nullptr) { }
 
@@ -233,11 +161,92 @@ public:
     //std::reverse(s.begin(), s.end());
     return s;
   }
+
+  Int add_serial(const Int& other) {
+    // I need some way to not allocate and free the carry every time.
+    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
+    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
+
+    int n_blocks = (a.n_limbs - 1 + add_block_sz) / add_block_sz;
+
+    Int c, carry;
+    c.resize(a.n_limbs + 1);
+    carry.resize(n_blocks);
+    //Int c = std::move(Int().reserve(a.n_limbs));
+
+    // assumes fewer than 1024 * add_block_sz limbs
+    g_add_serial<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, carry.d_limbs);
+    g_carry_serial<<<1, 1>>>(c.d_limbs, a.n_limbs, carry.d_limbs, add_block_sz);
+    if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
+
+    return c;
+  }
+
+  Int add(const Int& other) {
+    // I need some way to not allocate and free the carry every time.
+    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
+    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
+
+    int n_blocks = (a.n_limbs - 1 + add_block_sz) / add_block_sz;
+
+    Int c, p, g;
+    c.resize(a.n_limbs + 1);
+    p.resize(n_blocks);
+    g.resize(n_blocks);
+
+#ifndef NDEBUG
+    bool debug = false;
+    //bool debug = a.n_limbs == 512 && b.n_limbs == 1;
+    std::cout << a.n_limbs << ' ' << b.n_limbs << '\n';
+#else
+    bool debug = false;
+#endif
+
+    g_carry_reduce_limb_block<<<n_blocks, add_block_sz>>>(p.d_limbs, g.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, debug);
+    // TODO make sure we're not off by one on n_limbs
+    for (int k = 1; k < n_blocks; k *= add_block_sz)
+      g_reduce<<<
+        (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
+        add_block_sz>>>
+          (p.d_limbs, g.d_limbs, g.n_limbs, k, debug); 
+    for (int i = 1; i < n_blocks; i *= add_block_sz) {
+      int k = (n_blocks - 1 + i) / i;
+      g_sweep<<<
+        (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
+        add_block_sz>>>(p.d_limbs, g.d_limbs, g.n_limbs, k, debug);
+    }
+
+    g_add<<<n_blocks, add_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, p.d_limbs, g.d_limbs, debug);
+    if (d_read(c.d_limbs + a.n_limbs) == 0) c.resize(a.n_limbs);
+
+    return c;
+  }
+  template <bool serial=false>
+  Int times(const Int& other) {
+    const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
+    const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
+
+    // a_i <= a_n - 1, b_i <= b_n - 1 ==> a_i + b_i < a_n + b_n - 1
+    int c_n = a.n_limbs + b.n_limbs - 1;
+
+    int n_blocks = (c_n - 1 + times_block_sz) / times_block_sz;
+    Int c, carry;
+    c.resize(c_n);
+    carry.resize(c_n + 2);
+    g_times<<<n_blocks, times_block_sz>>>(c.d_limbs, a.d_limbs, a.n_limbs, b.d_limbs, b.n_limbs, carry.d_limbs);
+    if (d_read(carry.d_limbs + c_n + 1) == 0) {
+      if (d_read(carry.d_limbs + c_n) == 0) carry.resize(c_n);
+      else carry.resize(c_n+1);
+    } else carry.resize(c_n+2);
+    if (serial) return c.add_serial(carry);
+    else return c.add(carry);
+  }
+
   Int operator+(const Int& b) {
     return add(b);
   }
   Int operator*(const Int& b) {
-    return times(b);
+    return times<true>(b);
   }
 };
 }

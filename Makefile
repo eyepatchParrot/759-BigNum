@@ -4,7 +4,7 @@ WFLAGS	:= -Wall -Wextra
 CUDA_WFLAGS := $(foreach option, $(WFLAGS), --compiler-options $(option))
 
 # Optimization and architecture
-OPT		:= -O3
+OPT		:= -O3 -DNDEBUG
 ARCH   	:= -march=native
 
 CXX := nvcc

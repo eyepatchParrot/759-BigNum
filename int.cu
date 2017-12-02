@@ -35,12 +35,16 @@ __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
   else
     s_g[threadIdx.x] = 0; // x + 0 < x = false
 
+#ifndef NDEBUG
   if (debug && tid() == 0) printf("sz %d %d\n", a_sz, b_sz);
   if (debug) printf("crlb-0 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
+#endif
 
   s_reduce(s_p, s_g);
 
-  //if (debug) printf("crlb-1 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
+#ifndef NDEBUG
+  if (debug) printf("crlb-1 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
+#endif
 
   __syncthreads();
 
@@ -60,7 +64,9 @@ __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz, bool
   // [[(1+i)*k - 1 for i in range(16) if (1+i)*k <= n]
   //  for k in [2**j for j in range(10)] if k <= n]
   if (j < n) {
+#ifndef NDEBUG
     if (debug) printf("r-0 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
+#endif
     s_p[threadIdx.x] = p[j];
     s_g[threadIdx.x] = g[j];
   } else {
@@ -72,7 +78,9 @@ __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz, bool
 
   if (j >= n) return;
 
+#ifndef NDEBUG
   if (debug) printf("r-1 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
+#endif
   p[j] = s_p[threadIdx.x];
   g[j] = s_g[threadIdx.x];
 }
@@ -103,13 +111,17 @@ __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz, bool 
   if (i + block_sz < n) {
     s_p[threadIdx.x] = p[i];
     s_g[threadIdx.x] = g[i];
+#ifndef NDEBUG
     if (debug) printf("s-0 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
+#endif
   } else s_p[threadIdx.x] = s_g[threadIdx.x] = 0;
 
   s_sweep(s_g, s_p);
   __syncthreads();
   if (i + block_sz >= n) return;
+#ifndef NDEBUG
   if (debug) printf("s-1 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
+#endif
   // TODO the last propagate can be elided during addition since the carry is zero.
   p[i] = s_p[threadIdx.x];
   g[i] = s_g[threadIdx.x];
@@ -129,8 +141,10 @@ __global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, co
   int t_carry = blockIdx.x < 1 ? 0 : g[blockIdx.x - 1];
   for (int i = 0; i < blockDim.x && tid() + i < a_sz; i++) {
     int old_a = a[tid() + i];
+#ifndef NDEBUG
     if (debug)
       printf("a-0 i,a_sz,b_sz %d %d %d\n", tid()+i, a_sz, b_sz);
+#endif
     c[tid()+i] = old_a + (tid()+i < b_sz ? b[tid() + i] : 0) + t_carry;
     t_carry = t_carry ? c[tid() + i] <= old_a : c[tid() + i] < a[tid() + i];
   }
