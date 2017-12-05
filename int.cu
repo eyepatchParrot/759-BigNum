@@ -37,7 +37,7 @@ __global__ void g_carry_reduce_limb_block(Limb* p, Limb* g, const Limb* a,
 
 #ifndef NDEBUG
   if (debug && tid() == 0) printf("sz %d %d\n", a_sz, b_sz);
-  if (debug) printf("crlb-0 tid,p,g,a,b %d %d %d %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
+  if (debug) printf("crlb-0 tid,p,g,a,b %d %lu %lu %lu %lu\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], tid() < a_sz ? a[tid()] : 0, tid() < b_sz ? b[tid()] : 0);
 #endif
 
   s_reduce(s_p, s_g);
@@ -65,7 +65,7 @@ __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz, bool
   //  for k in [2**j for j in range(10)] if k <= n]
   if (j < n) {
 #ifndef NDEBUG
-    if (debug) printf("r-0 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
+    if (debug) printf("r-0 tid,p,g,j %d %lu %lu %d\n", tid(), p[j], g[j], j);
 #endif
     s_p[threadIdx.x] = p[j];
     s_g[threadIdx.x] = g[j];
@@ -79,7 +79,7 @@ __global__ void g_reduce(Limb* p, Limb* g, const int n, const int block_sz, bool
   if (j >= n) return;
 
 #ifndef NDEBUG
-  if (debug) printf("r-1 tid,p,g,j %d %d %d %d\n", tid(), p[j], g[j], j);
+  if (debug) printf("r-1 tid,p,g,j %d %lu %lu %d\n", tid(), p[j], g[j], j);
 #endif
   p[j] = s_p[threadIdx.x];
   g[j] = s_g[threadIdx.x];
@@ -105,22 +105,22 @@ __global__ void g_sweep(Limb* p, Limb* g, const int n, const int block_sz, bool 
   __shared__ volatile Limb s_g[Int::add_block_sz];
 
   // assume that k is the smallest distance considered
-  int i = (tid()+2) * block_sz - 1;
+  int i = (tid()+1) * block_sz - 1;
   // [[t * B - 1 for t in range(2,16) if (t+1)*B-1 < 16]
   //  for B in [2**j for j in range(2,-1,-1)]]
   if (i + block_sz < n) {
     s_p[threadIdx.x] = p[i];
     s_g[threadIdx.x] = g[i];
 #ifndef NDEBUG
-    if (debug) printf("s-0 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
+    if (debug) printf("s-0 tid,p,g,i %d %lu %lu %d\n", tid(), p[i], g[i], i);
 #endif
   } else s_p[threadIdx.x] = s_g[threadIdx.x] = 0;
 
-  s_sweep(s_g, s_p);
+  s_sweep(s_p, s_g);
   __syncthreads();
   if (i + block_sz >= n) return;
 #ifndef NDEBUG
-  if (debug) printf("s-1 tid,p,g,i %d %d %d %d\n", tid(), p[i], g[i], i);
+  if (debug) printf("s-1 tid,p,g,i %d %lu %lu %d\n", tid(), s_p[threadIdx.x], s_g[threadIdx.x], i);
 #endif
   // TODO the last propagate can be elided during addition since the carry is zero.
   p[i] = s_p[threadIdx.x];
@@ -138,19 +138,25 @@ __global__ void g_add(Limb* c,  const Limb* a, const int a_sz, const Limb* b, co
   if (threadIdx.x != 0) return;
   // If the last block has a carry out, then write that to the carry out
   if (blockIdx.x == gridDim.x - 1) c[a_sz] = g[blockIdx.x];
-  int t_carry = blockIdx.x < 1 ? 0 : g[blockIdx.x - 1];
+  Limb t_carry = blockIdx.x < 1 ? 0 : g[blockIdx.x - 1];
+#ifndef NDEBUG
+  if (debug && blockIdx.x >= 1) printf("a-0 blk_ix,p,g,i %d %lu %lu %d\n", blockIdx.x, g[blockIdx.x-1], p[blockIdx.x-1], tid());
+#endif
   for (int i = 0; i < blockDim.x && tid() + i < a_sz; i++) {
-    int old_a = a[tid() + i];
+    Limb old_a = a[tid() + i];
 #ifndef NDEBUG
     if (debug)
-      printf("a-0 i,a_sz,b_sz %d %d %d\n", tid()+i, a_sz, b_sz);
+      printf("a-1 i,a_sz,b_sz %d %d %d\n", tid()+i, a_sz, b_sz);
 #endif
     c[tid()+i] = old_a + (tid()+i < b_sz ? b[tid() + i] : 0) + t_carry;
     t_carry = t_carry ? c[tid() + i] <= old_a : c[tid() + i] < a[tid() + i];
   }
   // This won't write the carry out if the block is full, but that's OK because then the
   // whole block will have a carry and that can be written out.
-  if (tid() + a_sz < blockDim.x) c[tid()+a_sz] = t_carry;
+  if (tid() + a_sz < blockDim.x) {
+     c[tid()+a_sz] = t_carry;
+     if (debug) printf("c[%d] = %d\n", tid()+a_sz, c[tid()+a_sz]);
+  } else if (debug && g[blockIdx.x] != t_carry) printf("a-2 %lu %lu\n", g[blockIdx.x], t_carry);
   //if (tid() < b_sz) {
   //  Limb p_i = a[tid()] ^ b[tid()];
   //  c[tid()] = p_i ^ g[tid()];
@@ -184,16 +190,16 @@ __global__ void g_times(Limb* c, const Limb* a, const int a_n, const Limb* b, in
   Limb lo = 0, hi = 0, hi2 = 0;
   int c_i = tid();
   if (c_i >= c_n) return;
-  for (int a_i = min(a_n-1, c_i), b_i; (b_i = c_i - a_i) < b_n; a_i--) {
+  for (int a_i = min(a_n-1, c_i), b_i; (b_i = c_i - a_i) < b_n && a_i >= 0; a_i--) {
     Limb old_lo = lo, old_hi = hi;
     lo += a[a_i] * b[b_i];
-    hi += __umulhi(a[a_i], b[b_i]);
+    hi += __umul64hi(a[a_i], b[b_i]);
     if (lo < old_lo) {
       if (++hi <= old_hi) hi2++;
     } else if (hi < old_hi) hi2++;
   }
   c[c_i] = lo;
-  if (threadIdx.x < 2) carry[c_i] = 0;
+  if (blockIdx.x == 0 && threadIdx.x < 2) carry[c_i] = 0;
   __syncthreads();
 
   // remember, c != carry. carry has the extra room, but c doesn't.

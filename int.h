@@ -154,6 +154,7 @@ public:
     ss << std::hex << std::setfill('0');
     for (auto rIt = data.rbegin(); rIt != data.rend(); rIt++) {
       if (rIt != data.rbegin()) ss << std::setw(sizeof(Limb) * 2);
+      //if (rIt != data.rbegin()) ss << std::setw(sizeof(Limb) * 2);
       ss <<  *rIt;
     }
     ss << std::dec;
@@ -196,8 +197,8 @@ public:
 
 #ifndef NDEBUG
     bool debug = false;
-    //bool debug = a.n_limbs == 512 && b.n_limbs == 1;
-    std::cout << a.n_limbs << ' ' << b.n_limbs << '\n';
+    //debug = a.n_limbs == 4096 && b.n_limbs == 4096;
+    //std::cout << a.n_limbs << ' ' << b.n_limbs << '\n';
 #else
     bool debug = false;
 #endif
@@ -210,7 +211,9 @@ public:
         add_block_sz>>>
           (p.d_limbs, g.d_limbs, g.n_limbs, k, debug); 
     for (int i = 1; i < n_blocks; i *= add_block_sz) {
-      int k = (n_blocks - 1 + i) / i;
+      int k = std::max(1, (n_blocks - 1 + i * add_block_sz) / i / add_block_sz);
+      if (debug) std::cout << "S-0 i,k " << i << ' ' << k << '\n';
+      // TODO figure out why reduce + sweep are broken and fix them
       g_sweep<<<
         (n_blocks - 1 + add_block_sz * k) / k / add_block_sz,
         add_block_sz>>>(p.d_limbs, g.d_limbs, g.n_limbs, k, debug);
@@ -225,6 +228,9 @@ public:
   Int times(const Int& other) {
     const Int& a = this->n_limbs >= other.n_limbs ? *this : other;
     const Int& b = this->n_limbs >= other.n_limbs ? other : *this;
+
+    // special case zero
+    if (b.n_limbs == 0) return Int(0_mpz);
 
     // a_i <= a_n - 1, b_i <= b_n - 1 ==> a_i + b_i < a_n + b_n - 1
     int c_n = a.n_limbs + b.n_limbs - 1;

@@ -63,6 +63,14 @@ int main() {
   mpz_class limb_n = 1_mpz << 64;
   assert(mpz_size(limb_n.get_mpz_t()) == 2);
 
+  mpz_class block_n = 1_mpz << (64*256);
+  assert(mpz_size(block_n.get_mpz_t()) == 257);
+
+  gmp_randstate_t rands;
+  gmp_randinit_default(rands);
+  gmp_randseed_ui(rands, 42);
+
+  const int n_tests = 10;
 
 #define GPU_OK(N1, OP, N2, NAME) \
   do { \
@@ -70,12 +78,20 @@ int main() {
     Int t3 = Int(t1) OP Int(t2); \
     if (mpz_cksum(t1 OP t2) != t3.cksum()) { \
       mpz_class r = t1 OP t2; \
-        std::cerr << r.get_str(16) << '\n' << std::string(t3) << '\n'; \
+        std::cerr << "FAIL " << NAME << '\n' << t1.get_str(16) << '\n' << t2.get_str(16) << '\n' << r.get_str(16) << '\n' << std::string(t3) << '\n'; \
         assert(!NAME); \
     } else { \
-      std::cout << "PASS " << NAME << '\n'; \
+      if ("" != NAME) std::cout << "PASS " << NAME << '\n'; \
     } \
   } while (0)
+
+  // addition tests
+  // zero
+  GPU_OK(1_mpz, +, 0_mpz, "1+0=1");
+  GPU_OK(limb_n - 1, +, 0_mpz, "F+0=F");
+  GPU_OK(limb_n * (limb_n - 1), +, 0_mpz, "F0+0=F0");
+  GPU_OK(block_n - 1, +, 0_mpz, "BLK F + 0 = F");
+  GPU_OK(block_n, +, 0_mpz, "BLK 10 + 0 = 10");
 
   GPU_OK(1_mpz, +, 1_mpz, "1+1=2");
   GPU_OK(limb_n, +, limb_n, "10 + 10 = 20");
@@ -91,8 +107,6 @@ int main() {
   GPU_OK(limb_n * (limb_n - 2) + limb_n - 1, +, limb_n + 1, "EF + 11 = 100");
 
   // carry block tests
-  mpz_class block_n = 1_mpz << (64*256);
-  assert(mpz_size(block_n.get_mpz_t()) == 257);
   GPU_OK(block_n, +, block_n, "BLK 10 + 10 = 20");
   GPU_OK(block_n - 1, +, block_n - 1, "BLK F + F = 1E");
   GPU_OK(block_n - 1, +, 1, "BLK F + 1 = 10");
@@ -101,7 +115,27 @@ int main() {
   GPU_OK((block_n * block_n - 1), +, 1_mpz, "BLK FF + 1 = 100");
   GPU_OK(block_n * (block_n - 2) + block_n - 1, +, block_n + 1, "BLK EF + 11 = 100");
 
+  // random addition tests
+  //for (int sz = 1; sz < std::numeric_limits<int>::max() / 2; sz *= 2) {
+  // TODO figure out 1048576
+  for (int sz = 64; sz <= 1048576; sz *= 2) {
+    mpz_class a,b;
+    for (int i = 0; i < n_tests; i++) {
+      mpz_rrandomb(a.get_mpz_t(), rands, sz);
+      mpz_rrandomb(b.get_mpz_t(), rands, sz);
+      GPU_OK(a, +, b, "");
+    }
+  }
+  GPU_OK(1,+,1,"RAND +");
+
   // times tests
+  // zero
+  GPU_OK(1_mpz, *, 0_mpz, "1*0=0");
+  GPU_OK(limb_n - 1, *, 0_mpz, "F*0=0");
+  GPU_OK(limb_n * (limb_n - 1), *, 0_mpz, "F0*0=0");
+  GPU_OK(block_n - 1, *, 0_mpz, "BLK F * 0 = 0");
+  GPU_OK(block_n, *, 0_mpz, "BLK 10 * 0 = 0");
+
   GPU_OK(1_mpz, *, 1_mpz, "1 * 1 = 1");
   GPU_OK(limb_n, *, 1_mpz, "10 * 1 = 10");
   GPU_OK(block_n, *, 1_mpz, "BLK 10 * 1 = 10");
@@ -113,8 +147,17 @@ int main() {
   GPU_OK(limb_n - 1, *, limb_n - 1, "F * F = FFFE0001");
   GPU_OK(block_n - 1, *, block_n - 1, "BLK F * F = FFFE0001");
 
-  // TODO randomized testing
-
+  // random * test
+  for (int sz = 1; sz <= 2048 << (2*5); sz *= 2) {
+    mpz_class a,b;
+    for (int i = 0; i < n_tests; i++) {
+      mpz_rrandomb(a.get_mpz_t(), rands, sz);
+      mpz_rrandomb(b.get_mpz_t(), rands, sz);
+      GPU_OK(a, *, b, "");
+      //GPU_OK(a, *, b, (std::to_string(sz) + " " + std::to_string(i)).c_str());
+    }
+  }
+  GPU_OK(1,*,1,"RAND *");
 
   return 0;
 }
