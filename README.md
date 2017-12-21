@@ -9,10 +9,13 @@ $ ./benchmark
 Run tests
 $ ./test
 
-main.cpp is the driver for the code, it instantiates the class objects
-_Toom_Cook_3.cpp implements the logic for split, evaluation , pointwise multiplication and interpolation
-$gcc -std=c++11 -fopenmp main.cpp _Took_Cook__3.cpp -o accelerate
-$accelerate
+File main.cpp is the driver for the code, it instantiates the class objects
+
+File _Toom_Cook_3.cpp implements the logic for split, evaluation , pointwise multiplication and interpolation
+
+Run $gcc -std=c++11 -fopenmp main.cpp _Took_Cook__3.cpp -o accelerate
+
+Run $accelerate
 
 Files:
 * benchmark.cu uses Google benchmark to benchmark GMP multiplication against our library.
